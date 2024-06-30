@@ -1,1 +1,1 @@
-Практика по теории https://webgpufundamentals.org/
+Practice https://webgpufundamentals.org/
