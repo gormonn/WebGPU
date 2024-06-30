@@ -1,9 +1,3 @@
-
-/**
- *
- * @param elemId
- * @return {Promise<void>}
- */
 export async function main(elemId) {
 	try {
 		const adapter = await navigator.gpu?.requestAdapter();
