@@ -1,0 +1,16 @@
+{
+  "name": "WebGPU",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "git@github.com:gormonn/WebGPU.git",
+  "author": "Dmitriy Aleksandrovich Chernukho <gormonn@redcollar.ru>",
+  "license": "MIT",
+  "scripts": {
+    "dev": "serve ./",
+    "dev2": "yarn live-server"
+  },
+  "devDependencies": {
+    "live-server": "git+https://github.com/tapio/live-server.git#ad22544",
+    "serve": "^14.2.1"
+  }
+}
