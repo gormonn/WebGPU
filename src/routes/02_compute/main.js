@@ -1,85 +1,95 @@
-export async function main(elemId) {
+export async function main(inputArr) {
+	let resultBuffer;
 	try {
 		const adapter = await navigator.gpu?.requestAdapter();
 		const device = await adapter?.requestDevice();
-		if (!device) {
+		if(!device){
 			console.error('need a browser that supports WebGPU!');
 			return;
 		}
 
-		const canvas = document.getElementById(elemId);
-		const context = canvas.getContext('webgpu');
-		const format = navigator.gpu.getPreferredCanvasFormat();
-
-		context.configure({
-			device,
-			format
-		});
-
 		const module = device.createShaderModule({
-			label: 'Hardcoded red triangle shaders',
-			code: `
-            @vertex fn vertexShader(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4f {
-                let pos = array(
-                    vec2f( 0.0,  0.5), // сверху по центру
-                    vec2f(-0.5, -0.5), // Нижний левый
-                    vec2f( 0.5, -0.5)  // Нижний правый
-                ); 
-    
-                return vec4f(pos[vertexIndex], 0.0, 1.0);
-            }
-    
-            @fragment fn fragmentShader() -> @location(0) vec4f {
-                return vec4f(1.0, 0.0, 0.0, 1.0);
-            }
-        `
-		});
-
-		const pipeline = device.createRenderPipeline({
-			label: 'Hardcoded red triangle pipeline',
-			layout: 'auto',
-			vertex: {
-				module,
-				entryPoint: 'vertexShader'
-			},
-			fragment: {
-				module,
-				entryPoint: 'fragmentShader',
-				targets: [{ format }]
-			}
-		});
-
-		const renderPassDescriptor = {
-			label: 'Basic canvas renderPass',
-			colorAttachments: [
-				{
-					clearValue: [0.3, 0.3, 0.3, 1],
-					loadOp: 'clear',
-					storeOp: 'store'
+			label: 'dobling compute module',
+			code:`
+				@group(0) @binding(0) var<storage, read_write> data: array<f32>;
+				
+				@compute @workgroup_size(1) fn computeSomething(
+					@builtin(global_invocation_id) id: vec3u
+				) {
+					let i = id.x;
+					data[i] = data[i] * 2.0;
 				}
+			`
+		})
+
+		const pipeline = device.createComputePipeline({
+			label: 'doubling compute pipeline',
+			layout: 'auto',
+			compute: {
+				module
+			}
+		})
+
+		const input = new Float32Array(inputArr)
+
+		/**
+		 * create a buffer on the GPU to hold our computation
+		 * input and output
+		 * @type {WebGLBuffer | AudioBuffer}
+		 */
+		const workBuffer = device.createBuffer({
+			label: 'work buffer',
+			size: input.byteLength,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+		})
+		//  Copy our input data to that buffer
+		device.queue.writeBuffer(workBuffer, 0, input);
+
+		// create a buffer on the GPU to get a copy of thr results
+	    resultBuffer = device.createBuffer({
+			label: 'result buffer',
+			size: input.byteLength,
+			usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+		});
+
+		// setup a bindGroup to tell the shader which
+		// buffer to use for the computation
+		const bindGroup = device.createBindGroup({
+			label: 'bindGroup for work buffer',
+			layout: pipeline.getBindGroupLayout(0),
+			entries: [
+				{binding: 0, resource: {buffer: workBuffer}}
 			]
-		};
+		})
 
-		function render() {
-			// Получаем текущую текстуру из контекста холста и
-			// устанавливаем его в качестве текстуры для рендеринга.
-			renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
+		// Encode commands to do the computation
+		const encoder = device.createCommandEncoder({
+			label: 'doubling encoder'
+		});
+		const pass = encoder.beginComputePass({
+			label: 'doubling compute pass'
+		});
 
-			// создаем кодировщик команд, чтобы начать кодировать команды
-			const encoder = device.createCommandEncoder({ label: 'Our Encoder' });
+		pass.setPipeline(pipeline);
+		pass.setBindGroup(0, bindGroup);
+		pass.dispatchWorkgroups(input.length);
+		pass.end();
 
-			// создаем кодировщик прохода рендеринга для кодирования конкретных команд рендеринга
-			const pass = encoder.beginRenderPass(renderPassDescriptor);
-			pass.setPipeline(pipeline);
-			pass.draw(3);
-			pass.end();
+		encoder.copyBufferToBuffer(workBuffer, 0, resultBuffer, 0, resultBuffer.size);
 
-			const commandBuffer = encoder.finish();
-			device.queue.submit([commandBuffer]);
-		}
+		// finish encoding and sumbit the commands
+		const commandBuffer = encoder.finish();
+		device.queue.submit([commandBuffer]);
 
-		render();
+		// 	read the results
+		await resultBuffer.mapAsync(GPUMapMode.READ);
+		const result = new Float32Array(resultBuffer.getMappedRange());
+
+		return Array.from(result);
 	} catch (err) {
 		console.error('main error:', err);
+		return null;
+	}finally {
+		resultBuffer.unmap();
 	}
 }
